@@ -11,14 +11,14 @@
 #import <ImageIO/ImageIO.h>
 #import "RCTSensorOrientationChecker.h"
 
-@interface RCTCameraManager ()
+@interface RCTCameraManager ()<UIAlertViewDelegate>
 
 @property (strong, nonatomic) RCTSensorOrientationChecker * sensorOrientationChecker;
 @property (assign, nonatomic) NSInteger* flashMode;
 
 @end
 
-@implementation RCTCameraManager<UIAlertViewDelegate>
+@implementation RCTCameraManager
 
 RCT_EXPORT_MODULE();
 
