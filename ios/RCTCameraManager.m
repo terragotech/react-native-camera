@@ -18,7 +18,7 @@
 
 @end
 
-@implementation RCTCameraManager
+@implementation RCTCameraManager<UIAlertViewDelegate>
 
 RCT_EXPORT_MODULE();
 
@@ -28,6 +28,54 @@ RCT_EXPORT_MODULE();
     return [self view];
 }
 
+- (void)camDenied
+{
+    NSLog(@"%@", @"Denied camera access");
+    
+    NSString *alertText;
+    NSString *alertButton;
+    
+    BOOL canOpenSettings = (&UIApplicationOpenSettingsURLString != NULL);
+    if (canOpenSettings)
+    {
+        alertText = @"It looks like your privacy settings are preventing us from accessing your camera to do barcode scanning. You can fix this by doing the following:\n1. Touch the Go button below to open the Settings app.\n2. Touch Privacy.\n3. Turn the Camera on.\n4. Open this app and try again.";
+        
+        alertButton = @"Go";
+    }
+    else
+    {
+        alertText = @"It looks like your privacy settings are preventing us from accessing your camera to do barcode scanning. You can fix this by doing the following:\n1. Close this app.\n2. Open the Settings app.\n3. Scroll to the bottom and select this app in the list.\n4. Touch Privacy.\n5. Turn the Camera on.\n6. Open this app and try again.";
+        
+        alertButton = @"OK";
+    }
+    
+    UIAlertView *alert = [[UIAlertView alloc]
+                          initWithTitle:@"Error"
+                          message:alertText
+                          delegate:self
+                          cancelButtonTitle:alertButton
+                          otherButtonTitles:nil];
+    if (canOpenSettings) {
+        alert = [[UIAlertView alloc]
+                 initWithTitle:@"Error"
+                 message:alertText
+                 delegate:self
+                 cancelButtonTitle:alertButton
+                 otherButtonTitles:@"Cancel", nil];
+    }
+    alert.tag = 111073;
+    [alert show];
+}
+-(void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
+{
+    if (alertView.tag == 111073 && buttonIndex==0)
+    {
+        BOOL canOpenSettings = (&UIApplicationOpenSettingsURLString != NULL);
+        if (canOpenSettings)
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString]];
+    }
+}
+
 - (UIView *)view
 {
   self.session = [AVCaptureSession new];
@@ -35,7 +83,11 @@ RCT_EXPORT_MODULE();
     self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:self.session];
     self.previewLayer.needsDisplayOnBoundsChange = YES;
   #endif
-
+    AVAuthorizationStatus authStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+    if(authStatus == AVAuthorizationStatusDenied){
+        [self camDenied];
+        return nil;
+    }
   if(!self.camera){
     self.camera = [[RCTCamera alloc] initWithManager:self bridge:self.bridge];
   }
