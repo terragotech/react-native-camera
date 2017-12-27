@@ -344,7 +344,6 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
             } finally {
                 _multiFormatReader.reset();
                 RCTCameraViewFinder.barcodeScannerTaskLock = false;
-                return null;
             }
         }
     }
