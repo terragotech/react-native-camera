@@ -91,4 +91,9 @@ public class RCTCameraViewManager extends ViewGroupManager<RCTCameraView> {
         }
         view.setBarCodeTypes(result);
     }
+
+    @ReactProp(name = "zoom")
+    public void setZoom(RCTCameraView view, int zoom) {
+        view.setZoom(zoom);
+    }
 }

@@ -236,6 +236,25 @@ RCT_CUSTOM_VIEW_PROPERTY(aspect, NSInteger, RCTCamera) {
   self.previewLayer.videoGravity = aspectString;
 }
 
+RCT_CUSTOM_VIEW_PROPERTY(zoom, NSInteger, RCTCamera) {
+    NSInteger zoom = [RCTConvert NSInteger:json];
+    if (isnan(zoom)) {
+        return;
+    }
+    NSError *error = nil;
+    float vzoom = zoom;
+    if(vzoom > 1){
+        vzoom = vzoom/100;
+    }
+    AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
+    if ([device lockForConfiguration:&error]) {
+        device.videoZoomFactor = zoom;
+        [device unlockForConfiguration];
+    } else {
+        NSLog(@"error: %@", error);
+    }
+}
+
 RCT_CUSTOM_VIEW_PROPERTY(type, NSInteger, RCTCamera) {
   NSInteger type = [RCTConvert NSInteger:json];
 
@@ -467,6 +486,20 @@ RCT_EXPORT_METHOD(getFOV:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejec
 RCT_EXPORT_METHOD(hasFlash:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
     AVCaptureDevice *device = [self.videoCaptureDeviceInput device];
     resolve(@(device.hasFlash));
+}
+
+RCT_EXPORT_METHOD(setZoom:(CGFloat)zoomFactor) {
+    if (isnan(zoomFactor)) {
+        return;
+    }
+    NSError *error = nil;
+    AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
+    if ([device lockForConfiguration:&error]) {
+        device.videoZoomFactor = zoomFactor;
+        [device unlockForConfiguration];
+    } else {
+        NSLog(@"error: %@", error);
+    }
 }
 
 - (void)startSession {
@@ -1061,7 +1094,6 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
         NSLog(@"error: %@", error);
     }
 }
-
 - (void)setCaptureQuality:(NSString *)quality
 {
     #if !(TARGET_IPHONE_SIMULATOR)
