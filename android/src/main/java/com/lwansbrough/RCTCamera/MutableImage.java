@@ -1,5 +1,6 @@
 package com.lwansbrough.RCTCamera;
 
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -20,7 +21,6 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
@@ -37,6 +37,14 @@ public class MutableImage {
         this.currentRepresentation = toBitmap(originalImageData);
     }
 
+    public int getWidth() {
+        return this.currentRepresentation.getWidth();
+    }
+
+    public int getHeight() {
+        return this.currentRepresentation.getHeight();
+    }
+
     public void mirrorImage() throws ImageMutationFailedException {
         Matrix m = new Matrix();
 
@@ -46,8 +54,8 @@ public class MutableImage {
                 currentRepresentation,
                 0,
                 0,
-                currentRepresentation.getWidth(),
-                currentRepresentation.getHeight(),
+                getWidth(),
+                getHeight(),
                 m,
                 false
         );
@@ -67,18 +75,41 @@ public class MutableImage {
                 return;
             } else if (exifIFD0Directory.containsTag(ExifIFD0Directory.TAG_ORIENTATION)) {
                 int exifOrientation = exifIFD0Directory.getInt(ExifIFD0Directory.TAG_ORIENTATION);
-                rotate(exifOrientation);
+                if(exifOrientation != 1) {
+                    rotate(exifOrientation);
+                    exifIFD0Directory.setInt(ExifIFD0Directory.TAG_ORIENTATION, 1);
+                }
             }
         } catch (ImageProcessingException | IOException | MetadataException e) {
             throw new ImageMutationFailedException("failed to fix orientation", e);
         }
     }
 
+    public void cropToPreview(double previewRatio) throws IllegalArgumentException {
+        int pictureWidth = getWidth(), pictureHeight = getHeight();
+        int targetPictureWidth, targetPictureHeight;
+
+        if (previewRatio * pictureHeight > pictureWidth) {
+            targetPictureWidth = pictureWidth;
+            targetPictureHeight = (int) (pictureWidth / previewRatio);
+        } else {
+            targetPictureHeight = pictureHeight;
+            targetPictureWidth = (int) (pictureHeight * previewRatio);
+        }
+        this.currentRepresentation = Bitmap.createBitmap(
+                this.currentRepresentation,
+                (pictureWidth - targetPictureWidth) / 2,
+                (pictureHeight - targetPictureHeight) / 2,
+                targetPictureWidth,
+                targetPictureHeight);
+    }
+
+    //see http://www.impulseadventure.com/photo/exif-orientation.html
     private void rotate(int exifOrientation) throws ImageMutationFailedException {
         final Matrix bitmapMatrix = new Matrix();
         switch (exifOrientation) {
             case 1:
-                break;
+                return;//no rotation required
             case 2:
                 bitmapMatrix.postScale(-1, 1);
                 break;
@@ -111,8 +142,8 @@ public class MutableImage {
                 currentRepresentation,
                 0,
                 0,
-                currentRepresentation.getWidth(),
-                currentRepresentation.getHeight(),
+                getWidth(),
+                getHeight(),
                 bitmapMatrix,
                 false
         );
@@ -135,13 +166,13 @@ public class MutableImage {
         }
     }
 
-    public String toBase64() {
-        return Base64.encodeToString(toBytes(currentRepresentation), Base64.DEFAULT);
+    public String toBase64(int jpegQualityPercent) {
+        return Base64.encodeToString(toJpeg(currentRepresentation, jpegQualityPercent), Base64.DEFAULT);
     }
 
-    public void writeDataToFile(File file, ReadableMap options) throws IOException {
+    public void writeDataToFile(File file, ReadableMap options, int jpegQualityPercent) throws IOException {
         FileOutputStream fos = new FileOutputStream(file);
-        fos.write(toBytes(currentRepresentation));
+        fos.write(toJpeg(currentRepresentation, jpegQualityPercent));
         fos.close();
 
         try {
@@ -203,22 +234,6 @@ public class MutableImage {
             );
         }
         return originalImageMetaData;
-    }
-
-    private static byte[] toBytes(Bitmap image) {
-        byte[] result = null;
-
-        try {
-            result = toJpeg(image, 85);
-        } catch (OutOfMemoryError e) {
-            try {
-                result = toJpeg(image, 70);
-            } catch (OutOfMemoryError e2) {
-                e.printStackTrace();
-            }
-        }
-
-        return result;
     }
 
     private static byte[] toJpeg(Bitmap bitmap, int quality) throws OutOfMemoryError {

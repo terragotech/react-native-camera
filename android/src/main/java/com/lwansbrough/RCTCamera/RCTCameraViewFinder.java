@@ -4,7 +4,10 @@
 
 package com.lwansbrough.RCTCamera;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.view.MotionEvent;
@@ -13,13 +16,15 @@ import android.os.AsyncTask;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReactContext;
-import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.EnumMap;
 import java.util.EnumSet;
+
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -34,9 +39,12 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
     private int _cameraType;
     private int _captureMode;
     private SurfaceTexture _surfaceTexture;
+    private int _surfaceTextureWidth;
+    private int _surfaceTextureHeight;
     private boolean _isStarting;
     private boolean _isStopping;
     private Camera _camera;
+    private boolean _clearWindowBackground = false;
     private float mFingerSpacing;
 
     // concurrency lock for barcode scanner to avoid flooding the runtime
@@ -55,22 +63,32 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         _surfaceTexture = surface;
+        _surfaceTextureWidth = width;
+        _surfaceTextureHeight = height;
         startCamera();
     }
 
     @Override
     public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+        _surfaceTextureWidth = width;
+        _surfaceTextureHeight = height;
     }
 
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
         _surfaceTexture = null;
+        _surfaceTextureWidth = 0;
+        _surfaceTextureHeight = 0;
         stopCamera();
         return true;
     }
 
     @Override
     public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+    }
+
+    public int getCameraType() {
+        return _cameraType;
     }
 
     public double getRatio() {
@@ -110,13 +128,21 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         RCTCamera.getInstance().setFlashMode(_cameraType, flashMode);
     }
 
-    private void startPreview() {
+    public void setClearWindowBackground(boolean clearWindowBackground) {
+        this._clearWindowBackground = clearWindowBackground;
+    }
+
+    public void setZoom(int zoom) {
+        RCTCamera.getInstance().setZoom(_cameraType, zoom);
+   }
+
+    public void startPreview() {
         if (_surfaceTexture != null) {
             startCamera();
         }
     }
 
-    private void stopPreview() {
+    public void stopPreview() {
         if (_camera != null) {
             stopCamera();
         }
@@ -128,17 +154,30 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
             try {
                 _camera = RCTCamera.getInstance().acquireCameraInstance(_cameraType);
                 Camera.Parameters parameters = _camera.getParameters();
-                // set autofocus
-                List<String> focusModes = parameters.getSupportedFocusModes();
-                if (focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
-                    parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+
+                final boolean isCaptureModeStill = (_captureMode == RCTCameraModule.RCT_CAMERA_CAPTURE_MODE_STILL);
+                final boolean isCaptureModeVideo = (_captureMode == RCTCameraModule.RCT_CAMERA_CAPTURE_MODE_VIDEO);
+                if (!isCaptureModeStill && !isCaptureModeVideo) {
+                    throw new RuntimeException("Unsupported capture mode:" + _captureMode);
                 }
+
+                // Set auto-focus. Try to set to continuous picture/video, and fall back to general
+                // auto if available.
+                List<String> focusModes = parameters.getSupportedFocusModes();
+                if (isCaptureModeStill && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                    parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+                } else if (isCaptureModeVideo && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
+                    parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+                } else if (focusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                    parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                }
+
                 // set picture size
                 // defaults to max available size
                 List<Camera.Size> supportedSizes;
-                if (_captureMode == RCTCameraModule.RCT_CAMERA_CAPTURE_MODE_STILL) {
+                if (isCaptureModeStill) {
                     supportedSizes = parameters.getSupportedPictureSizes();
-                } else if (_captureMode == RCTCameraModule.RCT_CAMERA_CAPTURE_MODE_VIDEO) {
+                } else if (isCaptureModeVideo) {
                     supportedSizes = RCTCamera.getInstance().getSupportedVideoSizes(_camera);
                 } else {
                     throw new RuntimeException("Unsupported capture mode:" + _captureMode);
@@ -153,6 +192,12 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
                 _camera.setParameters(parameters);
                 _camera.setPreviewTexture(_surfaceTexture);
                 _camera.startPreview();
+                // clear window background if needed
+                if (_clearWindowBackground) {
+                    Activity activity = getActivity();
+                    if (activity != null)
+                        activity.getWindow().setBackgroundDrawable(null);
+                }
                 // send previews to `onPreviewFrame`
                 _camera.setPreviewCallback(this);
             } catch (NullPointerException e) {
@@ -184,6 +229,17 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
                 _isStopping = false;
             }
         }
+    }
+
+    private Activity getActivity() {
+        Context context = getContext();
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                return (Activity)context;
+            }
+            context = ((ContextWrapper)context).getBaseContext();
+        }
+        return null;
     }
 
     /**
@@ -277,6 +333,45 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
             this.imageData = imageData;
         }
 
+        private Result getBarcode(int width, int height) {
+            try{
+              PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(imageData, width, height, 0, 0, width, height, false);
+              BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
+              return _multiFormatReader.decodeWithState(bitmap);
+            } catch (Throwable t) {
+                // meh
+            } finally {
+                _multiFormatReader.reset();
+            }
+            return null;
+        }
+
+        private Result getBarcodeAnyOrientation() {
+            Camera.Size size = camera.getParameters().getPreviewSize();
+
+            int width = size.width;
+            int height = size.height;
+            Result result = getBarcode(width, height);
+            if (result != null)
+              return result;
+
+            rotateImage(width, height);
+            width = size.height;
+            height = size.width;
+
+            return getBarcode(width, height);
+        }
+
+        private void rotateImage(int width, int height) {
+            byte[] rotated = new byte[imageData.length];
+            for (int y = 0; y < height; y++) {
+              for (int x = 0; x < width; x++) {
+                rotated[x * height + height - y - 1] = imageData[x + y * width];
+              }
+            }
+            imageData = rotated;
+        }
+
         @Override
         protected Void doInBackground(Void... ignored) {
             if (isCancelled()) {
@@ -293,50 +388,83 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
 
             // rotate for zxing if orientation is portrait
             if (RCTCamera.getInstance().getActualDeviceOrientation() == 0) {
-                byte[] rotated = new byte[imageData.length];
-                for (int y = 0; y < height; y++) {
-                    for (int x = 0; x < width; x++) {
+               byte[] rotated = new byte[imageData.length];
+               for (int y = 0; y < height; y++) {
+                   for (int x = 0; x < width; x++) {
                         rotated[x * height + height - y - 1] = imageData[x + y * width];
-                    }
+                   }
                 }
                 if (captureBarCodeImage) {
                     int i = width * height * 3 / 2 - 1;
                     for(int x = width - 1; x > 0; x = x - 2) {
-                        for(int y = 0; y < height / 2; y++) {
-                            rotated[i] = imageData[(width * height) + (y * width) + x];
-                            i--;
-                            rotated[i] = imageData[(width * height) + (y * width) + (x - 1)];
-                            i--;
+                       for(int y = 0; y < height / 2; y++) {
+                           rotated[i] = imageData[(width * height) + (y * width) + x];
+                           i--;
+                           rotated[i] = imageData[(width * height) + (y * width) + (x - 1)];
+                           i--;
                         }
-                    }
-                }
-                width = size.height;
-                height = size.width;
-                imageData = rotated;
-            }
+                     }
+                 }
+                 width = size.height;
+                 height = size.width;
+                 imageData = rotated;
+              }
+
+                        try {
+                            PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(imageData, width, height, 0, 0, width, height, false);
+                            BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
+                            Result result = _multiFormatReader.decodeWithState(bitmap);
+
+                            ReactContext reactContext = RCTCameraModule.getReactContextSingleton();
+                            WritableMap event = Arguments.createMap();
+
+                            event.putString("data", result.getText());
+                            event.putString("type", result.getBarcodeFormat().toString());
+                            WritableArray points = Arguments.createArray();
+                            for (ResultPoint point: result.getResultPoints()) {
+                                WritableMap p = Arguments.createMap();
+                                p.putDouble("x", point.getX() / width);
+                                p.putDouble("y", point.getY() / height);
+                                points.pushMap(p);
+                            }
+                            event.putArray("points", points);
+
+                            if (captureBarCodeImage) {
+                                RCTCamera.getInstance().setBarcodeImage(imageData == originalData ? imageData.clone() : imageData, width, height, format);
+                            }
+                            reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("CameraBarCodeReadAndroid", event);
+
+                        } catch (Throwable t) {
+                            // meh
+                        } finally {
+                            _multiFormatReader.reset();
+                            RCTCameraViewFinder.barcodeScannerTaskLock = false;
+                        }
 
             try {
-                PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(imageData, width, height, 0, 0, width, height, false);
-                BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
-                Result result = _multiFormatReader.decodeWithState(bitmap);
+                // rotate for zxing if orientation is portrait
+                Result result = getBarcodeAnyOrientation();
+                if (result == null){
+                    throw new Exception();
+                }
 
                 ReactContext reactContext = RCTCameraModule.getReactContextSingleton();
                 WritableMap event = Arguments.createMap();
+                WritableArray resultPoints = Arguments.createArray();
+                ResultPoint[] points = result.getResultPoints();
 
+                if(points != null) {
+                    for (ResultPoint point : points) {
+                        WritableMap newPoint = Arguments.createMap();
+                        newPoint.putString("x", String.valueOf(point.getX()));
+                        newPoint.putString("y", String.valueOf(point.getY()));
+                        resultPoints.pushMap(newPoint);
+                    }
+                }
+
+                event.putArray("bounds", resultPoints);
                 event.putString("data", result.getText());
                 event.putString("type", result.getBarcodeFormat().toString());
-                WritableArray points = Arguments.createArray();
-                for (ResultPoint point: result.getResultPoints()) {
-                    WritableMap p = Arguments.createMap();
-                    p.putDouble("x", point.getX() / width);
-                    p.putDouble("y", point.getY() / height);
-                    points.pushMap(p);
-                }
-                event.putArray("points", points);
-
-                if (captureBarCodeImage) {
-                    RCTCamera.getInstance().setBarcodeImage(imageData == originalData ? imageData.clone() : imageData, width, height, format);
-                }
                 reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("CameraBarCodeReadAndroid", event);
 
             } catch (Throwable t) {
@@ -344,13 +472,18 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
             } finally {
                 _multiFormatReader.reset();
                 RCTCameraViewFinder.barcodeScannerTaskLock = false;
+                return null;
             }
-            return null;
-        }
+
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        // Fast swiping and touching while component is being loaded can cause _camera to be null.
+        if (_camera == null) {
+            return false;
+        }
+
         // Get the pointer ID
         Camera.Parameters params = _camera.getParameters();
         int action = event.getAction();
@@ -391,21 +524,65 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         _camera.setParameters(params);
     }
 
+    /**
+     * Handles setting focus to the location of the event.
+     *
+     * Note that this will override the focus mode on the camera to FOCUS_MODE_AUTO if available,
+     * even if this was previously something else (such as FOCUS_MODE_CONTINUOUS_*; see also
+     * {@link #startCamera()}. However, this makes sense - after the user has initiated any
+     * specific focus intent, we shouldn't be refocusing and overriding their request!
+     */
     public void handleFocus(MotionEvent event, Camera.Parameters params) {
-        int pointerId = event.getPointerId(0);
-        int pointerIndex = event.findPointerIndex(pointerId);
-        // Get the pointer's current position
-        float x = event.getX(pointerIndex);
-        float y = event.getY(pointerIndex);
-
         List<String> supportedFocusModes = params.getSupportedFocusModes();
         if (supportedFocusModes != null && supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
-            _camera.autoFocus(new Camera.AutoFocusCallback() {
-                @Override
-                public void onAutoFocus(boolean b, Camera camera) {
-                    // currently set to auto-focus on single touch
-                }
-            });
+            // Ensure focus areas are enabled. If max num focus areas is 0, then focus area is not
+            // supported, so we cannot do anything here.
+            if (params.getMaxNumFocusAreas() == 0) {
+                return;
+            }
+
+            // Cancel any previous focus actions.
+            _camera.cancelAutoFocus();
+
+            // Compute focus area rect.
+            Camera.Area focusAreaFromMotionEvent;
+            try {
+                focusAreaFromMotionEvent = RCTCameraUtils.computeFocusAreaFromMotionEvent(event, _surfaceTextureWidth, _surfaceTextureHeight);
+            } catch (final RuntimeException e) {
+                e.printStackTrace();
+                return;
+            }
+
+            // Set focus mode to auto.
+            params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+            // Set focus area.
+            final ArrayList<Camera.Area> focusAreas = new ArrayList<Camera.Area>();
+            focusAreas.add(focusAreaFromMotionEvent);
+            params.setFocusAreas(focusAreas);
+
+            // Also set metering area if enabled. If max num metering areas is 0, then metering area
+            // is not supported. We can usually safely omit this anyway, though.
+            if (params.getMaxNumMeteringAreas() > 0) {
+                params.setMeteringAreas(focusAreas);
+            }
+
+            // Set parameters before starting auto-focus.
+            _camera.setParameters(params);
+
+            // Start auto-focus now that focus area has been set. If successful, then can cancel
+            // it afterwards. Wrap in try-catch to avoid crashing on merely autoFocus fails.
+            try {
+                _camera.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean success, Camera camera) {
+                        if (success) {
+                            camera.cancelAutoFocus();
+                        }
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
