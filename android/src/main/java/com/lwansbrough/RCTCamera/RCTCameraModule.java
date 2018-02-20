@@ -464,9 +464,10 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
     public static byte[] convertFileToByteArray(File f)
     {
         byte[] byteArray = null;
+        InputStream inputStream = null;
         try
         {
-            InputStream inputStream = new FileInputStream(f);
+            inputStream = new FileInputStream(f);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             byte[] b = new byte[1024*8];
             int bytesRead;
@@ -480,6 +481,11 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         catch (IOException e)
         {
             e.printStackTrace();
+        }
+        finally {
+            if (inputStream != null) {
+                inputStream.close();
+            }
         }
         return byteArray;
     }
