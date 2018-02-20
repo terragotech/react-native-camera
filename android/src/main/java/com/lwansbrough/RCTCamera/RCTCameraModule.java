@@ -484,7 +484,11 @@ public class RCTCameraModule extends ReactContextBaseJavaModule
         }
         finally {
             if (inputStream != null) {
-                inputStream.close();
+                try {
+                    inputStream.close();
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
             }
         }
         return byteArray;
