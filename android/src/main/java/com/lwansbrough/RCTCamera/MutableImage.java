@@ -140,11 +140,11 @@ public class MutableImage {
     }
 
     public void writeDataToFile(File file, ReadableMap options) throws IOException {
-        FileOutputStream fos = new FileOutputStream(file);
-        fos.write(toBytes(currentRepresentation));
-        fos.close();
-
+        FileOutputStream fos = null;
         try {
+            fos = new FileOutputStream(file);
+            fos.write(toBytes(currentRepresentation));
+
             ExifInterface exif = new ExifInterface(file.getAbsolutePath());
 
             // copy original exif data to the output exif...
@@ -165,6 +165,14 @@ public class MutableImage {
             exif.saveAttributes();
         } catch (ImageProcessingException  | IOException e) {
             Log.e(TAG, "failed to save exif data", e);
+        } finally {
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 
