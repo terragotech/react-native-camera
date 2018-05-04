@@ -110,6 +110,10 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         RCTCamera.getInstance().setFlashMode(_cameraType, flashMode);
     }
 
+    public void setZoom(int zoom) {
+        RCTCamera.getInstance().setZoom(_cameraType, zoom);
+    }
+
     private void startPreview() {
         if (_surfaceTexture != null) {
             startCamera();
@@ -372,6 +376,8 @@ class RCTCameraViewFinder extends TextureView implements TextureView.SurfaceText
         }
         return true;
     }
+
+
 
     private void handleZoom(MotionEvent event, Camera.Parameters params) {
         int maxZoom = params.getMaxZoom();
