@@ -248,7 +248,7 @@ RCT_CUSTOM_VIEW_PROPERTY(zoom, NSInteger, RCTCamera) {
     }
     AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
     if ([device lockForConfiguration:&error]) {
-        device.videoZoomFactor = zoom;
+        device.videoZoomFactor = vzoom;
         [device unlockForConfiguration];
     } else {
         NSLog(@"error: %@", error);
