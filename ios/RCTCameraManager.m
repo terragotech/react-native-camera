@@ -243,11 +243,21 @@ RCT_CUSTOM_VIEW_PROPERTY(zoom, NSInteger, RCTCamera) {
     }
     NSError *error = nil;
     float vzoom = zoom;
-    if(vzoom > 1){
+    if(vzoom > 1 && vzoom !=0){
         vzoom = vzoom/100;
     }
     AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
+    
     if ([device lockForConfiguration:&error]) {
+        float maxZoom = device.activeFormat.videoMaxZoomFactor;
+        if(maxZoom > 1){
+            vzoom = zoom;
+            if(vzoom<1){
+                vzoom = vzoom *100;
+            }
+            if(vzoom == 0) vzoom = 1;
+        }
+        NSLog(@"%f", maxZoom);
         device.videoZoomFactor = vzoom;
         [device unlockForConfiguration];
     } else {
