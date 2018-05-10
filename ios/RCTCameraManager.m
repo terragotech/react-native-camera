@@ -242,13 +242,13 @@ RCT_CUSTOM_VIEW_PROPERTY(zoom, NSInteger, RCTCamera) {
         return;
     }
     NSError *error = nil;
-    float vzoom = zoom;
+    
     AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
     if ([device lockForConfiguration:&error]) {
         float maxZoom = device.activeFormat.videoMaxZoomFactor;
         if(maxZoom > 1){
-            if(vzoom == 0) vzoom = 1;
-            device.videoZoomFactor = vzoom;
+            if((zoom == 0)|| ((100 / zoom) > maxZoom))  return;
+            device.videoZoomFactor = (100 / zoom);
         }
         [device unlockForConfiguration];
     } else {
@@ -1067,23 +1067,35 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
 }
 
 - (void)zoom:(CGFloat)velocity reactTag:(NSNumber *)reactTag{
-    NSInteger zoom = [RCTConvert NSInteger:json];
-    if (isnan(zoom)) {
+    if (isnan(velocity)) {
         return;
     }
+    const CGFloat pinchVelocityDividerFactor = 20.0f; // TODO: calibrate or make this component's property
     NSError *error = nil;
     AVCaptureDevice *device = [[self videoCaptureDeviceInput] device];
     if ([device lockForConfiguration:&error]) {
-        float maxZoom = device.activeFormat.videoMaxZoomFactor;
-        if(maxZoom > 1){
-            if((zoom == 0)|| ((100 / zoom) > maxZoom))  return;
-            device.videoZoomFactor = (100 / zoom);
+        CGFloat zoomFactor = device.videoZoomFactor + atan(velocity / pinchVelocityDividerFactor);
+        if (zoomFactor > device.activeFormat.videoMaxZoomFactor) {
+            zoomFactor = device.activeFormat.videoMaxZoomFactor;
+        } else if (zoomFactor < 1) {
+            zoomFactor = 1.0f;
         }
+        
+        NSDictionary *event = @{
+                                @"target": reactTag,
+                                @"zoomFactor": [NSNumber numberWithDouble:zoomFactor],
+                                @"velocity": [NSNumber numberWithDouble:velocity]
+                                };
+        
+        [self.bridge.eventDispatcher sendInputEventWithName:@"zoomChanged" body:event];
+        
+        device.videoZoomFactor = zoomFactor;
         [device unlockForConfiguration];
     } else {
         NSLog(@"error: %@", error);
     }
 }
+
 - (void)setCaptureQuality:(NSString *)quality
 {
     #if !(TARGET_IPHONE_SIMULATOR)
